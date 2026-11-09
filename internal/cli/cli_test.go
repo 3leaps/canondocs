@@ -6,11 +6,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/3leaps/canonprims/canon"
 )
@@ -204,6 +206,10 @@ func TestNDJSON(t *testing.T) {
 			t.Errorf("%q: exit %d %q %q", tc.args, code, out, errs)
 		}
 	}
+	// max-bytes bounds the input only: the assembled set may be longer.
+	if out, errs, code := run(t, "2\n1\n", "jcs", "--ndjson-array", "--sort-set", "--max-bytes", "4"); code != ExitOK || out != "[1,2]" {
+		t.Errorf("set at input limit: exit %d %q %q", code, out, errs)
+	}
 	// Framing: CR LF, blank and unterminated lines are refused.
 	for _, bad := range []string{"{}\r\n", "{}\n\n", "{}", ""} {
 		if _, errs, code := run(t, bad, "jcs", "--ndjson-array"); code != ExitRefused || !strings.Contains(errs, "invalid_json") {
@@ -286,12 +292,43 @@ func TestLimits(t *testing.T) {
 	}
 }
 
+// --head answers once the selected lines arrive, while stdin stays open.
+func TestHeadDoesNotWaitForTheRestOfTheStream(t *testing.T) {
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	go func() { _, _ = pw.Write([]byte("1\n2\n")) }()
+	type result struct {
+		out, errs string
+		code      int
+	}
+	done := make(chan result, 1)
+	go func() {
+		var out, errb bytes.Buffer
+		code := Main([]string{"jcs", "--ndjson-array", "--head", "2", "--max-bytes", "4"}, Env{Stdin: pr, Stdout: &out, Stderr: &errb})
+		done <- result{out.String(), errb.String(), code}
+	}()
+	select {
+	case r := <-done:
+		if r.code != ExitOK || r.out != "[1,2]" {
+			t.Fatalf("exit %d %q %q", r.code, r.out, r.errs)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("still waiting for input after the selected lines")
+	}
+}
+
 func TestReadsAtMostMaxBytesPlusOne(t *testing.T) {
 	r := &countingReader{}
 	var out, errb bytes.Buffer
 	code := Main([]string{"jcs", "--max-bytes", "10"}, Env{Stdin: r, Stdout: &out, Stderr: &errb})
 	if code != ExitRefused || r.n != 11 {
 		t.Fatalf("exit %d, read %d bytes", code, r.n)
+	}
+	// The line-by-line read for --head is bounded the same way.
+	r = &countingReader{}
+	code = Main([]string{"jcs", "--ndjson-array", "--head", "1", "--max-bytes", "10"}, Env{Stdin: r, Stdout: &out, Stderr: &errb})
+	if code != ExitRefused || r.n > 11 {
+		t.Fatalf("head: exit %d, read %d bytes", code, r.n)
 	}
 }
 

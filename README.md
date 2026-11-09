@@ -84,14 +84,17 @@ Usage errors (exit 2):
 
 | Option | Default | Applies to |
 | --- | --- | --- |
-| `--max-bytes N` | 16777216 | input size; for YAML also the projected JSON |
+| `--max-bytes N` | 16777216 | input size (the input only, never the output) |
 | `--max-depth N` | 64 | array/object nesting (outermost container is depth 1) |
 | `--max-object-members N` | 65536 | members in one object / entries in one mapping |
 | `--max-string-bytes N` | 4194304 | decoded bytes of one string or key |
 
-At most `max-bytes + 1` bytes are read from a file or stdin. YAML input is
-additionally limited to 255 levels of nesting, two documents, and the
-yamlprims default node and alias budgets.
+At most `max-bytes + 1` bytes are read from a file or stdin; with
+`--ndjson-array --head N`, reading stops after the N-th line, so the answer
+does not wait for the rest of the stream. YAML input is additionally limited
+to 255 levels of nesting, two documents, and the yamlprims default node and
+alias budgets, which bound the size of the projected JSON (an alias-expansion
+bomb is `too_large`).
 
 ### Exit codes
 
@@ -145,8 +148,8 @@ canonicalized under RFC 8785. Every rule fails closed.
    U+nFFFE / U+nFFFF in every plane) are `noncharacter` in keys and values.
    Limits give `too_deep` and `too_large`.
 
-Any other YAML error (syntax, undefined alias, a Core tag whose value does not
-match, ill-formed UTF-8) is `invalid_yaml`. Anchors and aliases are expanded;
+Ill-formed UTF-8 is `invalid_utf8`. Any other YAML error (syntax, undefined
+alias, a Core tag whose value does not match) is `invalid_yaml`. Anchors and aliases are expanded;
 the result is plain data.
 
 Conformance vectors for these rules are in

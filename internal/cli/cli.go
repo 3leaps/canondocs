@@ -12,6 +12,7 @@
 package cli
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -279,7 +280,11 @@ func runJCS(args []string, env Env) (int, error) {
 	if help {
 		return output(env, []byte(jcsUsage)), nil
 	}
-	input, err := readInput(c.file, c.limits.MaxBytes, env.Stdin)
+	lines := 0
+	if c.format == FormatNDJSON {
+		lines = c.head
+	}
+	input, err := readInput(c.file, c.limits.MaxBytes, lines, env.Stdin)
 	if err != nil {
 		label := c.file
 		if label == "" {
@@ -356,8 +361,10 @@ func digest(b []byte) string {
 }
 
 // readInput reads at most maxBytes+1 bytes, so oversized input is refused as
-// too_large without being read in full.
-func readInput(file string, maxBytes int, stdin io.Reader) ([]byte, error) {
+// too_large without being read in full. When lines > 0 it stops after the
+// lines-th LF, so an NDJSON prefix is answered without waiting for the rest
+// of the stream.
+func readInput(file string, maxBytes, lines int, stdin io.Reader) ([]byte, error) {
 	limit := int64(maxBytes)
 	if limit < math.MaxInt64 {
 		limit++
@@ -373,7 +380,23 @@ func readInput(file string, maxBytes int, stdin io.Reader) ([]byte, error) {
 		defer f.Close()
 		r = f
 	}
-	return io.ReadAll(io.LimitReader(r, limit))
+	r = io.LimitReader(r, limit)
+	if lines <= 0 {
+		return io.ReadAll(r)
+	}
+	br := bufio.NewReader(r)
+	var buf []byte
+	for i := 0; i < lines; i++ {
+		line, err := br.ReadBytes('\n')
+		buf = append(buf, line...)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return buf, nil
 }
 
 // refused reports a refusal on stderr and returns exit code 1.
