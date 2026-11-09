@@ -13,6 +13,31 @@ python3 -B -E "$root/scripts/release-workflow-permissions.py" check
 python3 -B -E "$root/scripts/release-workflow-permissions.py" mutations
 python3 -B -E "$root/scripts/release-workflow-pin.py" check
 
+# Without PyYAML the checker falls back to a line scan plus yq. Shell text in
+# run: block scalars (for example "${VAR:?}") is not YAML structure, while a
+# flow mapping in the YAML itself is still refused.
+fallback() {
+    python3 -B -E -c 'import runpy, sys
+sys.modules["yaml"] = None
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name="__main__")' "$root/scripts/release-workflow-permissions.py" "$@"
+}
+fallback check > /dev/null
+fb="$(mktemp -d)"
+sed 's/^permissions:$/permissions: {contents: read}\nx-permissions:/' "$root/.github/workflows/release.yml" > "$fb/release.yml"
+if fallback check "$fb/release.yml" > /dev/null 2> "$fb/err"; then
+    rm -rf "$fb"
+    echo 'error: fallback checker accepted a flow-style mapping' >&2
+    exit 1
+fi
+grep -q 'flow-style YAML mappings are forbidden' "$fb/err" || {
+    cat "$fb/err" >&2
+    rm -rf "$fb"
+    echo 'error: fallback checker refused for another reason' >&2
+    exit 1
+}
+rm -rf "$fb"
+
 # Verify release-workflow-pin.py verify-commit ignores hostile GIT_* env vars
 # and git replace refs.
 scratch="$(mktemp -d)"
