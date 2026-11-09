@@ -158,11 +158,21 @@ lists each input file with either its canonical output and SHA-256 or its
 refusal code. An optional `options` member (`{"allow_merge_keys": true}`)
 gives the CLI options for a case.
 
+## Release verification
+
+Releases publish five raw binaries (`canondocs-darwin-arm64`,
+`canondocs-linux-amd64`, `canondocs-linux-arm64`, `canondocs-windows-amd64.exe`,
+`canondocs-windows-arm64.exe`) with minisign- and OpenPGP-signed `SHA256SUMS`
+and `SHA512SUMS`, from a GPG-signed tag. See
+[docs/security/README.md](docs/security/README.md) for verification and
+[RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) for the maintainer procedure.
+
 ## Development
 
 ```sh
 make check   # gofmt, go vet, go test, content check
 make build   # CGO_ENABLED=0 binary in bin/
+make release-tooling-test   # release tooling suites (throwaway keys; needs gpg, minisign, decernor)
 ```
 
 `CANONDOCS_CRUCIBLE_DIR`, when set to a crucible checkout, enables a

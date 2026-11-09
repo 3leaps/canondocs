@@ -15,3 +15,6 @@ All notable changes to this project are documented here. The format follows
 - YAML to I-JSON projection with six fail-closed rules and conformance
   vectors in `testdata/yaml-jcs-rfc8785-v0`.
 - `canondocs info`, `canondocs version [--json]` and `canondocs doctor`.
+- Release tooling: read-only, digest-pinned CI and tag workflows; signed
+  checksum manifests; tagged-commit public-key staging; published-release and
+  Homebrew/Scoop/Go-proxy registry verification; each with a test suite.
