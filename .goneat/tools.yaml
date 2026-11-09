@@ -1,0 +1,121 @@
+version: v1.0.0
+scopes:
+  dev:
+    description: Local build, lint, and test prerequisites
+    tools:
+      - go
+      - goneat
+      - git
+      - python3
+      - jq
+      - shasum
+  release:
+    description: Maintainer release and signing prerequisites
+    tools:
+      - go
+      - goneat
+      - decernor
+      - limensafe
+      - minisign
+      - gpg
+      - gpgv
+      - gh
+      - shasum
+      - python3
+      - git
+      - jq
+tools:
+  sfetch:
+    description: Secure Bootstrap Asset Fetcher (trust anchor)
+    required: true
+    install:
+      type: verify
+      command: ["sfetch", "--version"]
+      expect_exit_code: 0
+  go:
+    description: Go toolchain
+    required: true
+    install:
+      type: verify
+      command: ["go", "version"]
+      expect_exit_code: 0
+  goneat:
+    description: Fulmen repo hygiene and assessment CLI
+    required: true
+    install:
+      type: link
+      source: sfetch
+      repo: fulmenhq/goneat
+      tag: v0.6.7
+      bin_name: goneat
+      dest: ~/.local/bin
+  decernor:
+    description: Cryptographic fingerprint anchor verifier
+    required: false
+    install:
+      type: verify
+      command: ["decernor", "version"]
+      expect_exit_code: 0
+  limensafe:
+    description: Public-surface pattern scanner
+    required: false
+    install:
+      type: verify
+      command: ["limensafe", "version"]
+      expect_exit_code: 0
+  minisign:
+    description: Dead simple tool to sign files and verify signatures
+    required: false
+    install:
+      type: verify
+      command: ["minisign", "-v"]
+      expect_exit_code: 0
+  gpg:
+    description: GNU Privacy Guard for OpenPGP release signing
+    required: false
+    install:
+      type: verify
+      command: ["gpg", "--version"]
+      expect_exit_code: 0
+  gpgv:
+    description: OpenPGP signature verification tool
+    required: false
+    install:
+      type: verify
+      command: ["gpgv", "--version"]
+      expect_exit_code: 0
+  gh:
+    description: GitHub CLI for release operations
+    required: false
+    install:
+      type: verify
+      command: ["gh", "--version"]
+      expect_exit_code: 0
+  shasum:
+    description: SHA-256 and SHA-512 checksum utility
+    required: true
+    install:
+      type: verify
+      command: ["shasum", "-v"]
+      expect_exit_code: 0
+  python3:
+    description: Python 3 interpreter for release and surface-hygiene verifiers
+    required: true
+    install:
+      type: verify
+      command: ["python3", "--version"]
+      expect_exit_code: 0
+  git:
+    description: Git version control
+    required: true
+    install:
+      type: verify
+      command: ["git", "--version"]
+      expect_exit_code: 0
+  jq:
+    description: Command-line JSON processor
+    required: true
+    install:
+      type: verify
+      command: ["jq", "--version"]
+      expect_exit_code: 0

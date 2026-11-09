@@ -1,12 +1,13 @@
 #!/bin/sh
 # SPDX-License-Identifier: MIT OR Apache-2.0
 #
-# Refuses tracked (and untracked, not ignored) files that contain absolute
-# home-directory paths or non-public identifiers. Patterns are built
-# from fragments so this script does not match itself.
+# Refuses tracked (and untracked, not ignored) files that contain
+# non-public identifiers or developer-tree paths. Home-directory and secret
+# shapes in committed files are checked by scripts/content-check.py.
+# Patterns are built from fragments so this script does not match itself.
 set -eu
 
-home='/Us''ers/|/ho''me/[a-z]|~/d''ev/'
+home='~/d''ev/'
 ids='CD''OC-|CA''NP-|CR''U-[0-9]|YP''-TASK|GN''T-[0-9]|SY''SP-'
 roles='cxo''tech|ent''arch|dev''lead|matter''most'
 
