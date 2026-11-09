@@ -165,6 +165,17 @@ func TestWalkerStringEscapes(t *testing.T) {
 	if string(out) != "\"a\\\"\\\\\\u0000\\u001f\x7f é\"" {
 		t.Fatalf("%q", out)
 	}
+	// The walker refuses noncharacters itself, in values and in keys.
+	if _, err := walk(t, yaml.NewSyntheticNode(yaml.StringValue("a\U0010FFFF"))); code(err) != Noncharacter {
+		t.Fatalf("noncharacter value: %v", err)
+	}
+	m := yaml.NewMapping()
+	if ie := m.InsertNew(yaml.NewSyntheticNode(yaml.StringValue("\uFDD0")), yaml.NewSyntheticNode(yaml.NullValue())); ie != nil {
+		t.Fatal(ie)
+	}
+	if _, err := walk(t, yaml.NewSyntheticNode(yaml.MappingValue(m))); code(err) != Noncharacter {
+		t.Fatalf("noncharacter key: %v", err)
+	}
 	if _, err := walk(t, yaml.NewSyntheticNode(yaml.StringValue("\xff"))); code(err) != InvalidYAML {
 		t.Fatalf("invalid utf-8: %v", err)
 	}
