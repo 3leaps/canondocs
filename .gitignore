@@ -1,0 +1,6 @@
+/go.work
+/go.work.sum
+/dist/
+/bin/
+__pycache__/
+*.py[cod]

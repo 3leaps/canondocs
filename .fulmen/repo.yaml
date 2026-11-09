@@ -1,0 +1,17 @@
+name: canondocs
+org: 3leaps
+category: cli
+class: bolt
+primary_language: go
+cgo: false
+license: MIT OR Apache-2.0
+env_prefix: CANONDOCS_
+binary: canondocs
+dependencies:
+  prims:
+    - github.com/3leaps/canonprims/canon
+    - github.com/3leaps/yamlprims/yaml
+distribution:
+  - github-releases
+  - homebrew-tap
+  - scoop-bucket
