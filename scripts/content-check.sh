@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 #
 # Refuses tracked (and untracked, not ignored) files that contain absolute
-# home-directory paths or internal planning identifiers. Patterns are built
+# home-directory paths or non-public identifiers. Patterns are built
 # from fragments so this script does not match itself.
 set -eu
 
