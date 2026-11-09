@@ -5,6 +5,7 @@ package yamljcs
 import (
 	"errors"
 	"math"
+	"strings"
 	"testing"
 	"unicode/utf8"
 
@@ -176,7 +177,7 @@ func TestWalkerStringEscapes(t *testing.T) {
 	if _, err := walk(t, yaml.NewSyntheticNode(yaml.MappingValue(m))); code(err) != Noncharacter {
 		t.Fatalf("noncharacter key: %v", err)
 	}
-	if _, err := walk(t, yaml.NewSyntheticNode(yaml.StringValue("\xff"))); code(err) != InvalidYAML {
+	if _, err := walk(t, yaml.NewSyntheticNode(yaml.StringValue("\xff"))); code(err) != InvalidUTF8 {
 		t.Fatalf("invalid utf-8: %v", err)
 	}
 }
@@ -198,16 +199,35 @@ func TestLoadOptionsValid(t *testing.T) {
 	}
 }
 
-func TestProjectionOverMaxBytesIsTooLarge(t *testing.T) {
-	// "[a]" (3 bytes) projects to ["a"] (5 bytes): the max-bytes limit
-	// applies to the projected JSON as well as to the YAML input.
+func TestMaxBytesBoundsInputOnly(t *testing.T) {
+	// "[a]" (3 bytes) projects to ["a"] (5 bytes): accepted at max-bytes 3.
 	o := Options{Limits: DefaultLimits()}
-	o.Limits.MaxBytes = 4
-	if _, err := Canonicalize([]byte("[a]"), o); code(err) != TooLarge {
-		t.Fatalf("%v", err)
-	}
-	o.Limits.MaxBytes = 5
+	o.Limits.MaxBytes = 3
 	if out, err := Canonicalize([]byte("[a]"), o); err != nil || string(out) != `["a"]` {
 		t.Fatalf("%q %v", out, err)
+	}
+	if out, err := SortCanonicalSet([]byte("[b, a]"), Options{Limits: canon.Limits{MaxBytes: 6, MaxDepth: 64, MaxObjectMembers: 10, MaxStringBytes: 10}}); err != nil || string(out) != `["a","b"]` {
+		t.Fatalf("set: %q %v", out, err)
+	}
+	o.Limits.MaxBytes = 2
+	if _, err := Canonicalize([]byte("[a]"), o); code(err) != TooLarge {
+		t.Fatalf("input over max-bytes: %v", err)
+	}
+}
+
+func TestAliasBombRefused(t *testing.T) {
+	// Each level repeats the previous one ten times: 10^9 leaves if expanded.
+	doc := "a: &a [x, x, x, x, x, x, x, x, x, x]\n"
+	prev := "a"
+	for _, n := range []string{"b", "c", "d", "e", "f", "g", "h", "i"} {
+		doc += n + ": &" + n + " [" + strings.Repeat("*"+prev+", ", 9) + "*" + prev + "]\n"
+		prev = n
+	}
+	if len(doc) > 1024 {
+		t.Fatalf("bomb is %d bytes", len(doc))
+	}
+	_, err := Canonicalize([]byte(doc), Options{Limits: DefaultLimits()})
+	if code(err) != TooLarge {
+		t.Fatalf("%v", err)
 	}
 }

@@ -17,9 +17,10 @@
 //  6. Strings and keys contain none of the 66 Unicode noncharacters
 //     (noncharacter); depth and size limits give too_deep and too_large.
 //
-// Any other load failure is invalid_yaml. The projection emits plain JSON
-// text, which is then canonicalized by the canonprims canon package, so the
-// JCS serialization has a single implementation.
+// Ill-formed UTF-8 is invalid_utf8; any other load failure is invalid_yaml.
+// The projection emits plain JSON text, which is then canonicalized by the
+// canonprims canon package, so the JCS serialization has a single
+// implementation.
 package yamljcs
 
 import (
@@ -50,6 +51,7 @@ const (
 	TooLarge            Code = "too_large"
 	DuplicateKey        Code = "duplicate_key"
 	InvalidYAML         Code = "invalid_yaml"
+	InvalidUTF8         Code = "invalid_utf8"
 )
 
 // Refusal reports YAML input outside the projection's domain.
@@ -73,8 +75,9 @@ func (r *Refusal) Error() string {
 
 // Options controls loading and canonicalization.
 type Options struct {
-	// Limits bounds the YAML input (MaxBytes), the projected JSON text and
-	// its canonicalization (all four limits).
+	// Limits bounds the YAML input. MaxBytes applies to the input only;
+	// depth, members and string bytes also apply to the projected JSON,
+	// whose size is bounded by the YAML loader's node and alias budgets.
 	Limits canon.Limits
 	// AllowMergeKeys applies "<<" merge keys instead of refusing them.
 	AllowMergeKeys bool
@@ -151,7 +154,7 @@ func Canonicalize(input []byte, o Options) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	out, err := canon.Canonicalize(canon.JCS, j, o.Limits)
+	out, err := canon.Canonicalize(canon.JCS, j, projectionLimits(o.Limits))
 	return out, fromCanon(err)
 }
 
@@ -163,8 +166,15 @@ func SortCanonicalSet(input []byte, o Options) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	out, err := canon.SortCanonicalSet(j, o.Limits)
+	out, err := canon.SortCanonicalSet(j, projectionLimits(o.Limits))
 	return out, fromCanon(err)
+}
+
+// projectionLimits returns the limits for the projected JSON: the input was
+// already bounded by MaxBytes, so only that limit is lifted.
+func projectionLimits(l canon.Limits) canon.Limits {
+	l.MaxBytes = math.MaxInt
+	return l
 }
 
 // fromCanon turns a canon refusal on the projected JSON into a *Refusal.
@@ -213,6 +223,8 @@ func fromYAMLError(e *yaml.Error) *Refusal {
 		r.Code = IntegerOutsideIJSON
 	case yaml.ErrorKindFloatOutOfRange:
 		r.Code = NonFiniteNumber
+	case yaml.ErrorKindInvalidUtf8:
+		r.Code = InvalidUTF8
 	default:
 		r.Code = InvalidYAML
 	}
@@ -338,7 +350,7 @@ func (w *walker) str(s string, off int) error {
 	for i := 0; i < len(s); {
 		r, size := utf8.DecodeRuneInString(s[i:])
 		if r == utf8.RuneError && size <= 1 {
-			return &Refusal{Code: InvalidYAML, Offset: off, Message: "string is not valid UTF-8"}
+			return &Refusal{Code: InvalidUTF8, Offset: off, Message: "string is not valid UTF-8"}
 		}
 		if IsNoncharacter(r) {
 			return &Refusal{Code: Noncharacter, Offset: off, Message: fmt.Sprintf("noncharacter U+%04X", r)}

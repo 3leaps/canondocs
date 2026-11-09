@@ -73,5 +73,5 @@
 {"expect": {"refusal": "invalid_yaml"}, "id": "invalid-syntax", "input": "invalid-syntax.yaml"},
 {"expect": {"refusal": "invalid_yaml"}, "id": "unknown-anchor", "input": "unknown-anchor.yaml"},
 {"expect": {"refusal": "invalid_yaml"}, "id": "lone-surrogate-escape", "input": "lone-surrogate-escape.yaml"},
-{"expect": {"refusal": "invalid_yaml"}, "id": "invalid-utf8", "input": "invalid-utf8.yaml"}
+{"expect": {"refusal": "invalid_utf8"}, "id": "invalid-utf8", "input": "invalid-utf8.yaml"}
 ]
