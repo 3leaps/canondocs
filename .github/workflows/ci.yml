@@ -1,0 +1,75 @@
+# yamllint disable rule:document-start
+# yamllint disable rule:truthy
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  build-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16  # v6.5.0
+        with:
+          go-version: "1.26.10"
+          cache: false
+      - name: Verify toolchain
+        run: |
+          set -euo pipefail
+          go version
+          go mod download
+      - name: Format, vet, test and content checks
+        run: |
+          set -euo pipefail
+          make check
+      - name: Build every release target
+        run: |
+          set -euo pipefail
+          make build-all
+  # The committed release pin and anchors, and the release tooling suites,
+  # need gpg, minisign and Decernor. The suites use throwaway keys only and
+  # need no secrets.
+  release-anchors:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install checksum-pinned Decernor
+        run: |
+          set -euo pipefail
+          tool_dir="$(mktemp -d "$RUNNER_TEMP/decernor.XXXXXX")"
+          CANONDOCS_DECERNOR_BIN="$(./scripts/ci-install-decernor.sh "$tool_dir")"
+          case "$CANONDOCS_DECERNOR_BIN" in
+            *$'\n'*) echo "error: Decernor install printed extra stdout" >&2; exit 1 ;;
+          esac
+          echo "CANONDOCS_DECERNOR_BIN=$CANONDOCS_DECERNOR_BIN" >> "$GITHUB_ENV"
+      - name: Check committed release pin and anchors
+        run: |
+          set -euo pipefail
+          test -x "${CANONDOCS_DECERNOR_BIN:?CANONDOCS_DECERNOR_BIN required}"
+          make release-anchors-check
+      - name: Install minisign and python3-yaml
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y -q minisign python3-yaml
+      - name: Release tooling suites
+        run: |
+          set -euo pipefail
+          git config --global user.name 'CI Fixture'
+          git config --global user.email 'ci-fixture@example.invalid'
+          make release-tooling-test

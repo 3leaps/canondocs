@@ -1,0 +1,124 @@
+# yamllint disable rule:document-start
+# yamllint disable rule:truthy
+name: Release
+on:
+  push:
+    tags:
+      - "v*"
+defaults:
+  run:
+    shell: bash
+permissions:
+  contents: read
+jobs:
+  # Early warning, not an authorization gate: this workflow is defined by the
+  # tagged commit and is read-only. It holds no signing material and no write
+  # token, and never creates a release. The maintainer verifies the tag,
+  # signs the manifests, and creates the draft release locally from these
+  # artifacts.
+  verify-signature:
+    name: Verify pinned tag signature
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      commit: ${{ steps.verify.outputs.commit }}
+      tag_object: ${{ steps.verify.outputs.tag_object }}
+    steps:
+      - name: Checkout exact signed tag and committed pin
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install pinned Decernor
+        run: |
+          set -euo pipefail
+          tool_dir="$(mktemp -d "$RUNNER_TEMP/decernor.XXXXXX")"
+          CANONDOCS_DECERNOR_BIN="$(./scripts/ci-install-decernor.sh "$tool_dir")"
+          case "$CANONDOCS_DECERNOR_BIN" in
+            *$'\n'*) echo "error: Decernor install printed extra stdout" >&2; exit 1 ;;
+          esac
+          echo "CANONDOCS_DECERNOR_BIN=$CANONDOCS_DECERNOR_BIN" >>"$GITHUB_ENV"
+      - name: Verify committed pin and GitHub signature
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANONDOCS_RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          test -x "${CANONDOCS_DECERNOR_BIN:?CANONDOCS_DECERNOR_BIN required}"
+          ./scripts/release-restore-tag-ref.sh
+          CANONDOCS_REQUIRE_TAG=1 ./scripts/release-guard-tag-version.sh
+          ./scripts/verify-pinned-tag.sh
+          ./scripts/release-verify-committed-anchors.sh
+          EXPECTED_OBJECT="$(git rev-parse "refs/tags/$CANONDOCS_RELEASE_TAG")"
+          tag_json="$(gh api "repos/3leaps/canondocs/git/tags/$EXPECTED_OBJECT")"
+          jq -e --arg tag "$CANONDOCS_RELEASE_TAG" --arg commit "$(git rev-parse HEAD)" \
+            '.tag == $tag and .object.type == "commit" and .object.sha == $commit and
+             .verification.verified == true and .verification.reason == "valid"' \
+            <<<"$tag_json" >/dev/null
+          printf 'commit=%s\n' "$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
+          printf 'tag_object=%s\n' "$EXPECTED_OBJECT" >>"$GITHUB_OUTPUT"
+  # Builds the verified commit and uploads the artifacts as a workflow
+  # artifact. Release artifacts ship CGO-free and need only Go, make and
+  # coreutils, so this job runs on the plain hosted image rather than a tool
+  # container.
+  build:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: verify-signature
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16  # v6.5.0
+        with:
+          go-version: "1.26.10"
+          cache: false
+      # The verified annotated tag object, not just its commit, must still be
+      # the remote tag. A same-commit replacement tag fails here.
+      - name: Build only the verified tag object and commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERIFIED_COMMIT: ${{ needs.verify-signature.outputs.commit }}
+          CANONDOCS_EXPECTED_TAG_OBJECT: ${{ needs.verify-signature.outputs.tag_object }}
+          CANONDOCS_RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          [ -n "$VERIFIED_COMMIT" ] && [ "$(git rev-parse HEAD)" = "$VERIFIED_COMMIT" ] || {
+            echo "::error::checkout differs from the signature-verified commit"
+            exit 1
+          }
+          ./scripts/release-restore-tag-ref.sh
+      - name: Validate VERSION matches tag
+        run: |
+          set -euo pipefail
+          CANONDOCS_RELEASE_TAG="${GITHUB_REF_NAME}" make release-guard-signing-tag
+      - name: Verify toolchain
+        run: |
+          set -euo pipefail
+          go version
+          go mod download
+      - name: Test
+        run: |
+          set -euo pipefail
+          go test ./...
+      - name: Build release artifacts
+        run: |
+          set -euo pipefail
+          make release-build
+      - name: Upload release artifacts as a workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: release-artifacts-${{ github.ref_name }}
+          path: dist/release/*
+          if-no-files-found: error
+          retention-days: 30
