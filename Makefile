@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
 BINARY_NAME := canondocs
-VERSION := $(shell cat VERSION 2>/dev/null || echo dev)
+VERSION := $(shell cat VERSION 2>/dev/null || printf dev)
 LDFLAGS := -s -w -X github.com/3leaps/canondocs/internal/cli.Version=$(VERSION)
 GOBUILD := CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)"
 DIST_RELEASE ?= dist/release
