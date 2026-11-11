@@ -1,13 +1,5 @@
 # Release verification
 
-> **Pin status:** the public pins in this repository
-> (`release-signing-keys.asc`, `canondocs-minisign.pub`,
-> `config/release/signing-subkey.txt`, and `keys/expected-fingerprints.*`) are
-> placeholders until the first release. Every verification step refuses them.
-> `make release-export-pin` and `make release-insert-anchors` never overwrite
-> existing files: replace the placeholders with the published 3 Leaps pin set,
-> or delete them before bootstrapping.
-
 Official releases use a GPG-signed annotated Git tag and minisign-signed
 SHA256SUMS and SHA512SUMS manifests. These are separate signatures.
 

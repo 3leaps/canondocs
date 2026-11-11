@@ -177,6 +177,8 @@ grep -q '^\[ok\] release tag name v1.2.3 is canonical$' <<< "$out" || {
 }
 
 # Non-release goals ignore a stray generic name from another repository's shell.
-run_make RELEASE_TAG=v9.9.9 make -s -n version > /dev/null
+# (build is a real goal; a goal named like a fixture file would pass only on a
+# case-insensitive filesystem.)
+run_make RELEASE_TAG=v9.9.9 make -s -n build > /dev/null
 
 echo "[ok] release make tag-source tests passed"

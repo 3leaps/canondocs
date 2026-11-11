@@ -22,7 +22,7 @@ make release-tooling-test   # release tooling suites (throwaway keys only)
 | `testdata/yaml-jcs-rfc8785-v0` | YAML conformance vectors (`cases.json` index) |
 | `scripts/content-check.{sh,py}` | content checks run by `make check` |
 | `scripts/release-*`, `config/release/` | release, provenance and registry verification tooling; each script has a `*.test.sh` suite listed in `config/release/tooling-suites.txt` |
-| `docs/security/`, `keys/` | public release pins and fingerprint anchors (placeholders until the first release) |
+| `docs/security/`, `keys/` | public release pins and fingerprint anchors |
 
 ## Rules
 
