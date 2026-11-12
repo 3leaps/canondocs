@@ -84,6 +84,14 @@ case "$1 $2" in
     [[ -n "$body" ]] || exit 1
     if [[ -n "$jq_filter" ]]; then jq -c "$jq_filter" <<< "$body"; else printf '%s\n' "$body"; fi
     ;;
+"run list")
+    jq_filter=""
+    while [[ $# -gt 0 ]]; do
+        [[ "$1" == --jq ]] && jq_filter="$2"
+        shift
+    done
+    jq -c "$jq_filter" <<< "${FIXTURE_RUNS:-[]}"
+    ;;
 "run download")
     dir=""
     name=""
@@ -125,17 +133,34 @@ attempt_json() { # conclusion event head_sha attempt [path] [branch]
         "${5:-.github/workflows/release.yml}" "$2" "${6:-v1.2.3}" "$3" "$1" "$4"
 }
 good="$(attempt_json success push "$commit" 2)"
-export RELEASE_RUN_ID=11 RELEASE_RUN_ATTEMPT=2 FIXTURE_LATEST=2
+export CANONDOCS_RELEASE_RUN_ID=11 CANONDOCS_RELEASE_RUN_ATTEMPT=2 FIXTURE_LATEST=2
 
 # Fetch: refuses a non-canonical tag, a missing local tag, a missing run id or
 # attempt, and any named attempt that is not a successful push-triggered
 # release run for this tag on the tagged commit or is not the latest attempt.
 fail 'usage' ./scripts/release-fetch-ci-artifacts.sh 1.2.3 "$scratch/d0"
 fail 'published tag v9.9.9 failed verification' ./scripts/release-fetch-ci-artifacts.sh v9.9.9 "$scratch/d0"
-RELEASE_RUN_ID='' FIXTURE_ATTEMPT="$good" fail 'RELEASE_RUN_ID required' \
+CANONDOCS_RELEASE_RUN_ID='' FIXTURE_ATTEMPT="$good" fail 'CANONDOCS_RELEASE_RUN_ID required' \
     ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
-RELEASE_RUN_ATTEMPT='' FIXTURE_ATTEMPT="$good" fail 'RELEASE_RUN_ATTEMPT required' \
+CANONDOCS_RELEASE_RUN_ATTEMPT='' FIXTURE_ATTEMPT="$good" fail 'CANONDOCS_RELEASE_RUN_ATTEMPT required' \
     ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
+# Unprefixed selectors, even empty or alongside the prefixed ones, are refused
+# so a run named for another repository can never select this release.
+for unprefixed in RELEASE_RUN_ID=11 RELEASE_RUN_ATTEMPT=2 RELEASE_RUN_ID=; do
+    FIXTURE_ATTEMPT="$good" fail 'unprefixed RELEASE_RUN_ID or RELEASE_RUN_ATTEMPT is set' \
+        env "$unprefixed" ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
+done
+# Without a named run, exactly one successful push-triggered run for the tag
+# at the tagged commit must exist.
+run_row() { printf '{"databaseId":%s,"headSha":"%s","conclusion":"%s","event":"%s"}' "$1" "$2" "$3" "$4"; }
+other="$(printf '%040d' 0)"
+for runs in \
+    '[]' \
+    "[$(run_row 11 "$commit" success push),$(run_row 12 "$commit" success push)]" \
+    "[$(run_row 11 "$other" success push),$(run_row 12 "$commit" failure push),$(run_row 13 "$commit" success workflow_dispatch)]"; do
+    FIXTURE_RUNS="$runs" FIXTURE_ATTEMPT="$good" fail 'CANONDOCS_RELEASE_RUN_ID required' \
+        env -u CANONDOCS_RELEASE_RUN_ID ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
+done
 for bad in \
     "$(attempt_json failure push "$commit" 2)" \
     "$(attempt_json success workflow_dispatch "$commit" 2)" \
@@ -163,6 +188,14 @@ grep -q '^api repos/3leaps/canondocs/actions/artifacts/501/zip' "$FIXTURE_LOG"
 if grep -q '^run download' "$FIXTURE_LOG"; then echo 'error: used gh run download' >&2; exit 1; fi
 [[ "$(cat "$scratch/d2.anchor")" == "$(printf 'tag=v1.2.3\nobject=%s\ncommit=%s\nrun=11\nattempt=2\nartifact=501\ndigest=%s' "$object" "$commit" "$digest")" ]]
 [[ -f "$scratch/d2/canondocs-linux-amd64" ]]
+# Without named selectors, the single successful push-triggered run for the tag
+# at the tagged commit is selected, at its latest attempt; decoys are skipped.
+reset_listings
+(cd "$repo" && FIXTURE_ATTEMPT="$good" \
+    FIXTURE_RUNS="[$(run_row 9 "$other" success push),$(run_row 10 "$commit" failure push),$(run_row 11 "$commit" success push)]" \
+    env -u CANONDOCS_RELEASE_RUN_ID -u CANONDOCS_RELEASE_RUN_ATTEMPT \
+    ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/auto") > /dev/null
+[[ "$(cat "$scratch/auto.anchor")" == "$(printf 'tag=v1.2.3\nobject=%s\ncommit=%s\nrun=11\nattempt=2\nartifact=501\ndigest=%s' "$object" "$commit" "$digest")" ]]
 # A re-run landing during the download changes the artifact: refuse, and leave
 # no anchor behind.
 reset_listings

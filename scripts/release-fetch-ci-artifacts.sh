@@ -44,36 +44,33 @@ if [[ -n "${CANONDOCS_RELEASE_ANCHOR_FILE:-}" ]]; then
 fi
 python3 -B -E "$root/scripts/release-workflow-pin.py" verify-commit "$commit" > /dev/null ||
     die "release workflow pin check failed at tagged commit $commit"
-# The maintainer names the exact run and attempt (re-runs share a run id), or
-# when neither RELEASE_RUN_ID nor RELEASE_RUN_ATTEMPT is set in the environment,
-# deterministically selects the single successful push-triggered release.yml run
-# for this tag on the tagged commit.
-if [[ -z "${RELEASE_RUN_ID+x}" && -z "${RELEASE_RUN_ATTEMPT+x}" ]]; then
+# Only the repository-prefixed selectors are read, so a run named for another
+# repository in the same shell can never select this release's artifacts. The
+# maintainer may name the exact run (CANONDOCS_RELEASE_RUN_ID) and attempt
+# (CANONDOCS_RELEASE_RUN_ATTEMPT; re-runs share a run id). Without a run id,
+# the single successful push-triggered release.yml run for this tag on the
+# tagged commit is selected; without an attempt, that run's latest attempt.
+[[ -z "${RELEASE_RUN_ID+x}" && -z "${RELEASE_RUN_ATTEMPT+x}" ]] ||
+    die 'unprefixed RELEASE_RUN_ID or RELEASE_RUN_ATTEMPT is set; unset it and use CANONDOCS_RELEASE_RUN_ID / CANONDOCS_RELEASE_RUN_ATTEMPT'
+if [[ -n "${CANONDOCS_RELEASE_RUN_ID+x}" ]]; then
+    run_id="$CANONDOCS_RELEASE_RUN_ID"
+else
     runs="$(release_gh run list --repo 3leaps/canondocs --workflow release.yml --branch "$tag" --limit 100 \
         --json databaseId,headSha,conclusion,event \
         --jq "[.[] | select(.headSha == \"$commit\" and .conclusion == \"success\" and .event == \"push\") | .databaseId]")" ||
         die "could not list Release workflow runs for $tag"
-    if [[ -n "${CANONDOCS_RELEASE_RUN_ID:-}" ]]; then
-        run_id="$CANONDOCS_RELEASE_RUN_ID"
-        [[ "$run_id" =~ ^[1-9][0-9]*$ ]] || die 'RELEASE_RUN_ID required (the Release workflow run for this tag)'
-        jq -e --argjson run "$run_id" 'index($run) != null' <<< "$runs" > /dev/null ||
-            die "selected run $run_id is not a successful release run for $tag at $commit"
-    else
-        [[ "$(jq length <<< "$runs")" == 1 ]] ||
-            die 'RELEASE_RUN_ID required (select an exact successful Release workflow run for this tag)'
-        run_id="$(jq -r '.[0]' <<< "$runs")"
-    fi
-    run_attempt="${CANONDOCS_RELEASE_RUN_ATTEMPT:-}"
-    if [[ -z "$run_attempt" ]]; then
-        run_attempt="$(release_gh api "repos/3leaps/canondocs/actions/runs/$run_id" --jq '.run_attempt')" ||
-            die "could not read run $run_id"
-    fi
-else
-    run_id="${RELEASE_RUN_ID:-}"
-    run_attempt="${RELEASE_RUN_ATTEMPT:-}"
+    [[ "$(jq length <<< "$runs")" == 1 ]] ||
+        die "CANONDOCS_RELEASE_RUN_ID required ($(jq length <<< "$runs") successful Release workflow runs for $tag at $commit; name one)"
+    run_id="$(jq -r '.[0]' <<< "$runs")"
 fi
-[[ "$run_id" =~ ^[1-9][0-9]*$ ]] || die 'RELEASE_RUN_ID required (the Release workflow run for this tag)'
-[[ "$run_attempt" =~ ^[1-9][0-9]*$ ]] || die 'RELEASE_RUN_ATTEMPT required (the successful attempt of that run)'
+[[ "$run_id" =~ ^[1-9][0-9]*$ ]] || die 'CANONDOCS_RELEASE_RUN_ID required (the Release workflow run for this tag)'
+if [[ -n "${CANONDOCS_RELEASE_RUN_ATTEMPT+x}" ]]; then
+    run_attempt="$CANONDOCS_RELEASE_RUN_ATTEMPT"
+else
+    run_attempt="$(release_gh api "repos/3leaps/canondocs/actions/runs/$run_id" --jq '.run_attempt')" ||
+        die "could not read run $run_id"
+fi
+[[ "$run_attempt" =~ ^[1-9][0-9]*$ ]] || die 'CANONDOCS_RELEASE_RUN_ATTEMPT required (the successful attempt of that run)'
 run="$(release_gh api "repos/3leaps/canondocs/actions/runs/$run_id/attempts/$run_attempt" \
     --jq '{path, event, head_branch, head_sha, status, conclusion, run_attempt}')" ||
     die "could not read run $run_id attempt $run_attempt"

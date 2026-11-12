@@ -82,15 +82,20 @@ The tag workflow is read-only. It verifies the signed tag, builds, and uploads
 GitHub Release. A green tag workflow is not release authorization.
 
 - [ ] Download the CI artifacts for the verified tag and cross-check the recorded
-      ceremony anchor. Name the exact Release workflow run and its successful,
-      latest attempt (`gh run list --workflow release.yml`); staging binds to
+      ceremony anchor (written by `make release-record-anchor` above; the
+      download refuses without it). With exactly one successful Release
+      workflow run for the tag, that run and its latest attempt are selected;
+      otherwise name them (`gh run list --workflow release.yml`). Only the
+      `CANONDOCS_`-prefixed selectors are read; an unprefixed `RELEASE_RUN_ID`
+      or `RELEASE_RUN_ATTEMPT` in the environment is refused. Staging binds to
       that run's single `release-artifacts-v<version>` artifact by id and digest
       and refuses if a re-run appears during the download:
 
   ```bash
   export CANONDOCS_RELEASE_TAG=v<version>
   export CANONDOCS_RELEASE_ANCHOR_FILE=<abs-path-outside-repo>
-  export RELEASE_RUN_ID=<run id> RELEASE_RUN_ATTEMPT=<attempt>
+  # Optional: name the run and attempt (only needed after a re-run):
+  # export CANONDOCS_RELEASE_RUN_ID=<run id> CANONDOCS_RELEASE_RUN_ATTEMPT=<attempt>
   make release-clean
   make release-download
   make release-verify-checksums
