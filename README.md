@@ -4,7 +4,7 @@
 bytes, `sha256:` digests and golden test vectors for JSON, YAML 1.2.2 (Core
 Schema) and NDJSON input.
 
-It is a single static binary with no runtime dependencies. It reads one
+It is a single Go executable with no separately installed runtime. It reads one
 bounded input, writes one result, and exits. It keeps no state, opens no
 network connections, and never executes anything found in its input. Its
 only dependencies are two pure-Go libraries:
