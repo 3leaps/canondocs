@@ -17,8 +17,22 @@ only dependencies are two pure-Go libraries:
 
 ## Install
 
-Release binaries and package-manager installs are not published yet. To build
-from source (Go 1.24 or later):
+```sh
+brew install 3leaps/tap/canondocs                          # macOS Apple Silicon, Linux
+go install github.com/3leaps/canondocs/cmd/canondocs@v0.1.0
+```
+
+```powershell
+scoop bucket add 3leaps https://github.com/3leaps/scoop-bucket
+scoop install canondocs
+```
+
+Each [release](https://github.com/3leaps/canondocs/releases) also publishes
+raw binaries for darwin-arm64, linux-amd64, linux-arm64, windows-amd64 and
+windows-arm64, with signed `SHA256SUMS` and `SHA512SUMS` manifests. Verify a
+download before use: see [docs/security/README.md](docs/security/README.md).
+
+To build from source (Go 1.24 or later):
 
 ```sh
 make build        # writes bin/canondocs

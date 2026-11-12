@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-12
+
 ### Added
 
 - `canondocs jcs`: RFC 8785 canonical bytes, `--check`, `--digest` and
@@ -18,3 +20,6 @@ All notable changes to this project are documented here. The format follows
 - Release tooling: read-only, digest-pinned CI and tag workflows; signed
   checksum manifests; tagged-commit public-key staging; published-release and
   Homebrew/Scoop/Go-proxy registry verification; each with a test suite.
+
+[Unreleased]: https://github.com/3leaps/canondocs/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/3leaps/canondocs/releases/tag/v0.1.0
