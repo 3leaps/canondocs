@@ -84,8 +84,9 @@ GitHub Release. A green tag workflow is not release authorization.
 - [ ] Download the CI artifacts for the verified tag and cross-check the recorded
       ceremony anchor (written by `make release-record-anchor` above; the
       download refuses without it). With exactly one successful Release
-      workflow run for the tag, that run and its latest attempt are selected;
-      otherwise name them (`gh run list --workflow release.yml`). Only the
+      workflow run for the tag, that run and its latest attempt are selected.
+      If the download asks for `CANONDOCS_RELEASE_RUN_ID`, name the run and
+      attempt (`gh run list --workflow release.yml`). Only the
       `CANONDOCS_`-prefixed selectors are read; an unprefixed `RELEASE_RUN_ID`
       or `RELEASE_RUN_ATTEMPT` in the environment is refused. Staging binds to
       that run's single `release-artifacts-v<version>` artifact by id and digest
@@ -94,7 +95,7 @@ GitHub Release. A green tag workflow is not release authorization.
   ```bash
   export CANONDOCS_RELEASE_TAG=v<version>
   export CANONDOCS_RELEASE_ANCHOR_FILE=<abs-path-outside-repo>
-  # Optional: name the run and attempt (only needed after a re-run):
+  # Optional: name the run and attempt (when the download asks for them):
   # export CANONDOCS_RELEASE_RUN_ID=<run id> CANONDOCS_RELEASE_RUN_ATTEMPT=<attempt>
   make release-clean
   make release-download

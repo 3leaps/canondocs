@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Release tooling: the CI-artifact download no longer asks GitHub to filter
+  release runs by status, which could omit a run that had just completed; the
+  run's success is still checked before selection.
+
 ## [0.1.1] - 2026-11-13
 
 ### Changed
