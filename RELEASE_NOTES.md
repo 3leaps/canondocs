@@ -6,6 +6,15 @@ The latest three releases, newest first. The complete history is in
 
 ---
 
+## [0.1.1] - 2026-11-13
+
+Maintenance release: built against `github.com/3leaps/yamlprims` v0.2.1, with
+command-line behavior and canonical output unchanged. Maintainer release
+tooling binds the CI-artifact download more tightly to the signed tag and its
+recorded ceremony anchor.
+
+Details: [docs/releases/v0.1.1.md](docs/releases/v0.1.1.md).
+
 ## [0.1.0] - 2026-11-12
 
 First release: a single Go executable that writes RFC 8785 (JCS) canonical

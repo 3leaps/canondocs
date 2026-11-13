@@ -34,46 +34,73 @@ CANONDOCS_RELEASE_TAG="$tag" CANONDOCS_ANCHOR_OUT="$anchor" "$root/scripts/relea
 commit="$(awk -F= '$1=="commit" {print $2}' "$anchor")"
 object="$(awk -F= '$1=="object" {print $2}' "$anchor")"
 [[ "$commit" =~ ^[0-9a-f]{40}$ && "$object" =~ ^[0-9a-f]{40}$ ]] || die 'verification did not return an anchor'
-if [[ -n "${CANONDOCS_RELEASE_ANCHOR_FILE:-}" ]]; then
-    [[ -f "$CANONDOCS_RELEASE_ANCHOR_FILE" && ! -L "$CANONDOCS_RELEASE_ANCHOR_FILE" ]] ||
-        die "ceremony anchor file not found: $CANONDOCS_RELEASE_ANCHOR_FILE"
-    [[ "$(awk -F= '$1=="tag" {print $2}' "$CANONDOCS_RELEASE_ANCHOR_FILE")" == "$tag" &&
-        "$(awk -F= '$1=="object" {print $2}' "$CANONDOCS_RELEASE_ANCHOR_FILE")" == "$object" &&
-        "$(awk -F= '$1=="commit" {print $2}' "$CANONDOCS_RELEASE_ANCHOR_FILE")" == "$commit" ]] ||
-        die 'verified tag differs from the recorded ceremony anchor'
-fi
+# The ceremony anchor (make release-record-anchor) is required: the download
+# binds to the tag object and commit recorded when the tag was published.
+# Its path follows the same rules as when it was written
+# (scripts/release-record-anchor.sh): absolute, outside the repository, no
+# symlink in it or its parents. Its bytes must be exactly the three lines that
+# script writes for this tag, object and commit.
+anchor_file="${CANONDOCS_RELEASE_ANCHOR_FILE:-}"
+[[ -n "$anchor_file" ]] ||
+    die 'CANONDOCS_RELEASE_ANCHOR_FILE required (record it with make release-record-anchor)'
+[[ "$anchor_file" == /* ]] ||
+    die 'CANONDOCS_RELEASE_ANCHOR_FILE must be an absolute path outside the repository'
+python3 -I - "$root" "$anchor_file" << 'PY' || exit 1
+from pathlib import Path
+import sys
+
+repo = Path(sys.argv[1]).resolve()
+target = Path(sys.argv[2])
+cur = Path(target.anchor)
+for part in target.parts[1:-1]:
+    cur = cur / part
+    if cur.exists() and cur.is_symlink():
+        raise SystemExit("error: CANONDOCS_RELEASE_ANCHOR_FILE parent traverses a symlink")
+if target.is_symlink():
+    raise SystemExit("error: CANONDOCS_RELEASE_ANCHOR_FILE must not be a symlink")
+resolved = target.parent.resolve() / target.name
+if resolved == repo or resolved.is_relative_to(repo):
+    raise SystemExit("error: CANONDOCS_RELEASE_ANCHOR_FILE must be outside the repository working tree")
+PY
+[[ -f "$anchor_file" && ! -L "$anchor_file" ]] ||
+    die "ceremony anchor file not found: $anchor_file"
+# Compared through a pipe: no comparison file is written anywhere.
+cmp -s <(printf 'tag=%s\nobject=%s\ncommit=%s\n' "$tag" "$object" "$commit") "$anchor_file" ||
+    die 'verified tag differs from the recorded ceremony anchor'
 python3 -B -E "$root/scripts/release-workflow-pin.py" verify-commit "$commit" > /dev/null ||
     die "release workflow pin check failed at tagged commit $commit"
-# The maintainer names the exact run and attempt (re-runs share a run id), or
-# when neither RELEASE_RUN_ID nor RELEASE_RUN_ATTEMPT is set in the environment,
-# deterministically selects the single successful push-triggered release.yml run
-# for this tag on the tagged commit.
-if [[ -z "${RELEASE_RUN_ID+x}" && -z "${RELEASE_RUN_ATTEMPT+x}" ]]; then
-    runs="$(release_gh run list --repo 3leaps/canondocs --workflow release.yml --branch "$tag" --limit 100 \
-        --json databaseId,headSha,conclusion,event \
-        --jq "[.[] | select(.headSha == \"$commit\" and .conclusion == \"success\" and .event == \"push\") | .databaseId]")" ||
-        die "could not list Release workflow runs for $tag"
-    if [[ -n "${CANONDOCS_RELEASE_RUN_ID:-}" ]]; then
-        run_id="$CANONDOCS_RELEASE_RUN_ID"
-        [[ "$run_id" =~ ^[1-9][0-9]*$ ]] || die 'RELEASE_RUN_ID required (the Release workflow run for this tag)'
-        jq -e --argjson run "$run_id" 'index($run) != null' <<< "$runs" > /dev/null ||
-            die "selected run $run_id is not a successful release run for $tag at $commit"
-    else
-        [[ "$(jq length <<< "$runs")" == 1 ]] ||
-            die 'RELEASE_RUN_ID required (select an exact successful Release workflow run for this tag)'
-        run_id="$(jq -r '.[0]' <<< "$runs")"
-    fi
-    run_attempt="${CANONDOCS_RELEASE_RUN_ATTEMPT:-}"
-    if [[ -z "$run_attempt" ]]; then
-        run_attempt="$(release_gh api "repos/3leaps/canondocs/actions/runs/$run_id" --jq '.run_attempt')" ||
-            die "could not read run $run_id"
-    fi
+# Only the repository-prefixed selectors are read, so a run named for another
+# repository in the same shell can never select this release's artifacts. The
+# maintainer may name the exact run (CANONDOCS_RELEASE_RUN_ID) and attempt
+# (CANONDOCS_RELEASE_RUN_ATTEMPT; re-runs share a run id). Without a run id,
+# the single successful push-triggered release.yml run for this tag on the
+# tagged commit is selected; without an attempt, that run's latest attempt.
+[[ -z "${RELEASE_RUN_ID+x}" && -z "${RELEASE_RUN_ATTEMPT+x}" ]] ||
+    die 'unprefixed RELEASE_RUN_ID or RELEASE_RUN_ATTEMPT is set; unset it and use CANONDOCS_RELEASE_RUN_ID / CANONDOCS_RELEASE_RUN_ATTEMPT'
+if [[ -n "${CANONDOCS_RELEASE_RUN_ID+x}" ]]; then
+    run_id="$CANONDOCS_RELEASE_RUN_ID"
 else
-    run_id="${RELEASE_RUN_ID:-}"
-    run_attempt="${RELEASE_RUN_ATTEMPT:-}"
+    # The server filters to successful push runs of release.yml for this tag at
+    # the tagged commit; the same conditions are re-applied here, and a listing
+    # that does not hold every matching run (more than one page) is refused.
+    listing="$(release_gh api \
+        "repos/3leaps/canondocs/actions/workflows/release.yml/runs?branch=$tag&event=push&status=success&head_sha=$commit&per_page=100" \
+        --jq "{total: .total_count, shape: (.workflow_runs | type), listed: (.workflow_runs | length), ids: [.workflow_runs | arrays | .[] | select(.head_sha == \"$commit\" and .head_branch == \"$tag\" and .event == \"push\" and .status == \"completed\" and .conclusion == \"success\" and .path == \".github/workflows/release.yml\") | .id]}")" ||
+        die "could not list Release workflow runs for $tag"
+    jq -e '.shape == "array" and (.total | type) == "number" and .total == .listed' <<< "$listing" > /dev/null ||
+        die "Release workflow run listing for $tag is incomplete; name CANONDOCS_RELEASE_RUN_ID"
+    [[ "$(jq '.ids | length' <<< "$listing")" == 1 ]] ||
+        die "CANONDOCS_RELEASE_RUN_ID required ($(jq '.ids | length' <<< "$listing") successful Release workflow runs for $tag at $commit; name one)"
+    run_id="$(jq -r '.ids[0]' <<< "$listing")"
 fi
-[[ "$run_id" =~ ^[1-9][0-9]*$ ]] || die 'RELEASE_RUN_ID required (the Release workflow run for this tag)'
-[[ "$run_attempt" =~ ^[1-9][0-9]*$ ]] || die 'RELEASE_RUN_ATTEMPT required (the successful attempt of that run)'
+[[ "$run_id" =~ ^[1-9][0-9]*$ ]] || die 'CANONDOCS_RELEASE_RUN_ID required (the Release workflow run for this tag)'
+if [[ -n "${CANONDOCS_RELEASE_RUN_ATTEMPT+x}" ]]; then
+    run_attempt="$CANONDOCS_RELEASE_RUN_ATTEMPT"
+else
+    run_attempt="$(release_gh api "repos/3leaps/canondocs/actions/runs/$run_id" --jq '.run_attempt')" ||
+        die "could not read run $run_id"
+fi
+[[ "$run_attempt" =~ ^[1-9][0-9]*$ ]] || die 'CANONDOCS_RELEASE_RUN_ATTEMPT required (the successful attempt of that run)'
 run="$(release_gh api "repos/3leaps/canondocs/actions/runs/$run_id/attempts/$run_attempt" \
     --jq '{path, event, head_branch, head_sha, status, conclusion, run_attempt}')" ||
     die "could not read run $run_id attempt $run_attempt"

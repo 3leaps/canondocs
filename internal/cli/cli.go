@@ -31,7 +31,7 @@ import (
 )
 
 // Version is the canondocs version; release builds set it with -ldflags.
-var Version = "0.1.0"
+var Version = "0.1.1"
 
 // Exit codes.
 const (

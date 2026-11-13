@@ -3,7 +3,8 @@
 # Verify the GitHub release settings that live outside the repository:
 #
 #   1. The "Tag Publish Protection" tag ruleset on 3leaps/canondocs is active,
-#      covers refs/tags/v* with no exclusions, requires creation, update,
+#      covers exactly refs/tags/v*, refs/tags/spec-v* and refs/tags/go/*/v*
+#      with no exclusions, requires creation, update,
 #      deletion and non_fast_forward, and (when the caller has admin read access
 #      to see bypass_actors) allows only OrganizationAdmin to bypass.
 #   2. Immutable releases are enabled on 3leaps/canondocs.

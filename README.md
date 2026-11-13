@@ -19,7 +19,7 @@ only dependencies are two pure-Go libraries:
 
 ```sh
 brew install 3leaps/tap/canondocs                          # macOS Apple Silicon, Linux
-go install github.com/3leaps/canondocs/cmd/canondocs@v0.1.0
+go install github.com/3leaps/canondocs/cmd/canondocs@v0.1.1
 ```
 
 ```powershell

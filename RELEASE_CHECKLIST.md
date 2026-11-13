@@ -82,15 +82,20 @@ The tag workflow is read-only. It verifies the signed tag, builds, and uploads
 GitHub Release. A green tag workflow is not release authorization.
 
 - [ ] Download the CI artifacts for the verified tag and cross-check the recorded
-      ceremony anchor. Name the exact Release workflow run and its successful,
-      latest attempt (`gh run list --workflow release.yml`); staging binds to
+      ceremony anchor (written by `make release-record-anchor` above; the
+      download refuses without it). With exactly one successful Release
+      workflow run for the tag, that run and its latest attempt are selected;
+      otherwise name them (`gh run list --workflow release.yml`). Only the
+      `CANONDOCS_`-prefixed selectors are read; an unprefixed `RELEASE_RUN_ID`
+      or `RELEASE_RUN_ATTEMPT` in the environment is refused. Staging binds to
       that run's single `release-artifacts-v<version>` artifact by id and digest
       and refuses if a re-run appears during the download:
 
   ```bash
   export CANONDOCS_RELEASE_TAG=v<version>
   export CANONDOCS_RELEASE_ANCHOR_FILE=<abs-path-outside-repo>
-  export RELEASE_RUN_ID=<run id> RELEASE_RUN_ATTEMPT=<attempt>
+  # Optional: name the run and attempt (only needed after a re-run):
+  # export CANONDOCS_RELEASE_RUN_ID=<run id> CANONDOCS_RELEASE_RUN_ATTEMPT=<attempt>
   make release-clean
   make release-download
   make release-verify-checksums
@@ -122,7 +127,11 @@ change and is announced in the release notes.
 - [ ] Verify `go install github.com/3leaps/canondocs/cmd/canondocs@v<version>` works
 - [ ] Update `Formula/canondocs.rb` from the uploaded asset URLs and SHA256 values:
   - [ ] raw `canondocs-darwin-arm64`, `canondocs-linux-amd64`, `canondocs-linux-arm64` URLs
-  - [ ] no Intel macOS entry
+  - [ ] no Intel macOS entry; `depends_on arch: :arm64` inside `on_macos`, and
+        a `head "https://github.com/3leaps/canondocs.git", branch: "main"`
+        line so tap-wide checks load the formula on every platform
+  - [ ] no `version` line (Homebrew reads it from the URL; a redundant one
+        fails the tap audit)
   - [ ] `license any_of: ["MIT", "Apache-2.0"]`
 - [ ] Verify Homebrew: `brew install 3leaps/tap/canondocs && canondocs version`
 - [ ] Update `bucket/canondocs.json` from the uploaded asset URLs and SHA256 values:
