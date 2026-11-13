@@ -80,11 +80,13 @@ python3 -B -E "$root/scripts/release-workflow-pin.py" verify-commit "$commit" > 
 if [[ -n "${CANONDOCS_RELEASE_RUN_ID+x}" ]]; then
     run_id="$CANONDOCS_RELEASE_RUN_ID"
 else
-    # The server filters to successful push runs of release.yml for this tag at
-    # the tagged commit; the same conditions are re-applied here, and a listing
-    # that does not hold every matching run (more than one page) is refused.
+    # The server filters to push runs of release.yml for this tag at the tagged
+    # commit. Success is checked here only: the server's status filter can omit
+    # a run that has just completed. Every condition is re-applied here, and a
+    # listing that does not hold every matching run (more than one page) is
+    # refused.
     listing="$(release_gh api \
-        "repos/3leaps/canondocs/actions/workflows/release.yml/runs?branch=$tag&event=push&status=success&head_sha=$commit&per_page=100" \
+        "repos/3leaps/canondocs/actions/workflows/release.yml/runs?branch=$tag&event=push&head_sha=$commit&per_page=100" \
         --jq "{total: .total_count, shape: (.workflow_runs | type), listed: (.workflow_runs | length), ids: [.workflow_runs | arrays | .[] | select(.head_sha == \"$commit\" and .head_branch == \"$tag\" and .event == \"push\" and .status == \"completed\" and .conclusion == \"success\" and .path == \".github/workflows/release.yml\") | .id]}")" ||
         die "could not list Release workflow runs for $tag"
     jq -e '.shape == "array" and (.total | type) == "number" and .total == .listed' <<< "$listing" > /dev/null ||

@@ -64,8 +64,12 @@ case "$1 $2" in
     case "$path" in
     */actions/workflows/release.yml/runs\?*)
         # FIXTURE_RUNS is the workflow_runs page (the stub applies no server-side
-        # filter); FIXTURE_RUNS_TOTAL overrides total_count.
-        if [[ -n "${FIXTURE_RUNS_RAW:-}" ]]; then
+        # filter); FIXTURE_RUNS_TOTAL overrides total_count. A status filter in
+        # the query gets an empty page, as GitHub can return for a run that has
+        # just completed.
+        if [[ "$path" == *status=* ]]; then
+            body='{"total_count":0,"workflow_runs":[]}'
+        elif [[ -n "${FIXTURE_RUNS_RAW:-}" ]]; then
             body="$FIXTURE_RUNS_RAW"
         else
             body="$(jq -c --arg total "${FIXTURE_RUNS_TOTAL:-}" \
@@ -226,7 +230,7 @@ for unprefixed in RELEASE_RUN_ID=11 RELEASE_RUN_ATTEMPT=2 RELEASE_RUN_ID= RELEAS
 done
 # Without a named run, exactly one successful push-triggered release.yml run
 # for the tag at the tagged commit must be listed; each decoy differs in one
-# condition the server is asked to filter on and the script re-checks.
+# condition the script checks.
 for runs in \
     '[]' \
     "[$(run_row 11 "$commit" success push),$(run_row 12 "$commit" success push)]" \
@@ -277,14 +281,14 @@ if grep -q '^run download' "$FIXTURE_LOG"; then echo 'error: used gh run downloa
 [[ -f "$scratch/d2/canondocs-linux-amd64" ]]
 # Without named selectors, the single successful push-triggered run for the tag
 # at the tagged commit is selected, at its latest attempt; decoys are skipped.
-# The listing asks the server for exactly that filter.
+# The listing asks the server for exactly that filter, without a status filter.
 reset_listings
 : > "$FIXTURE_LOG"
 (cd "$repo" && FIXTURE_ATTEMPT="$good" \
     FIXTURE_RUNS="[$(run_row 9 "$other" success push),$(run_row 10 "$commit" failure push),$(run_row 11 "$commit" success push)]" \
     env -u CANONDOCS_RELEASE_RUN_ID -u CANONDOCS_RELEASE_RUN_ATTEMPT \
     ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/auto") > /dev/null
-grep -qF "api repos/3leaps/canondocs/actions/workflows/release.yml/runs?branch=v1.2.3&event=push&status=success&head_sha=$commit&per_page=100 " "$FIXTURE_LOG" || {
+grep -qF "api repos/3leaps/canondocs/actions/workflows/release.yml/runs?branch=v1.2.3&event=push&head_sha=$commit&per_page=100 " "$FIXTURE_LOG" || {
     echo 'error: run listing did not request the exact server-side filter' >&2
     cat "$FIXTURE_LOG" >&2
     exit 1
