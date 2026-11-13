@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `github.com/3leaps/yamlprims` is now v0.2.1 (was v0.1.1). The YAML loader
+  canondocs uses behaves the same; canonical output is unchanged.
+- Release tooling: the CI-artifact download reads only
+  `CANONDOCS_RELEASE_RUN_ID` and `CANONDOCS_RELEASE_RUN_ATTEMPT` and refuses
+  when an unprefixed `RELEASE_RUN_ID` or `RELEASE_RUN_ATTEMPT` is set.
+
 ## [0.1.0] - 2026-11-12
 
 ### Added
