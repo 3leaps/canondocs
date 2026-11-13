@@ -28,7 +28,7 @@ mkdir -p "$dest"
 # Verify the published tag now and record the verified object and commit. Every
 # later step, including draft creation, is bound to this anchor.
 anchor="$(mktemp)"
-trap 'rm -f "$anchor" "$anchor.expected"' EXIT
+trap 'rm -f "$anchor"' EXIT
 CANONDOCS_RELEASE_TAG="$tag" CANONDOCS_ANCHOR_OUT="$anchor" "$root/scripts/release-verify-published-tag.sh" > /dev/null ||
     die "published tag $tag failed verification"
 commit="$(awk -F= '$1=="commit" {print $2}' "$anchor")"
@@ -64,10 +64,9 @@ if resolved == repo or resolved.is_relative_to(repo):
 PY
 [[ -f "$anchor_file" && ! -L "$anchor_file" ]] ||
     die "ceremony anchor file not found: $anchor_file"
-printf 'tag=%s\nobject=%s\ncommit=%s\n' "$tag" "$object" "$commit" > "$anchor.expected"
-cmp -s "$anchor.expected" "$anchor_file" ||
+# Compared through a pipe: no comparison file is written anywhere.
+cmp -s <(printf 'tag=%s\nobject=%s\ncommit=%s\n' "$tag" "$object" "$commit") "$anchor_file" ||
     die 'verified tag differs from the recorded ceremony anchor'
-rm -f "$anchor.expected"
 python3 -B -E "$root/scripts/release-workflow-pin.py" verify-commit "$commit" > /dev/null ||
     die "release workflow pin check failed at tagged commit $commit"
 # Only the repository-prefixed selectors are read, so a run named for another
@@ -136,7 +135,7 @@ read -r artifact_id artifact_digest <<< "$before"
 [[ "$artifact_id" =~ ^[1-9][0-9]*$ ]] || die 'artifact id is malformed'
 [[ "$artifact_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "artifact $artifact_id has no sha256 digest"
 work="$(mktemp -d)"
-trap 'rm -f "$anchor" "$anchor.expected"; rm -rf "$work"' EXIT
+trap 'rm -f "$anchor"; rm -rf "$work"' EXIT
 release_gh api "repos/3leaps/canondocs/actions/artifacts/$artifact_id/zip" > "$work/artifact.zip" ||
     die "could not download artifact $artifact_id"
 actual="sha256:$(python3 -I -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$work/artifact.zip")"

@@ -32,6 +32,14 @@ cat > "$repo/scripts/release-verify-published-tag.sh" << SH
 printf 'reverify %s expect=%s/%s\\n' "\$CANONDOCS_RELEASE_TAG" "\${CANONDOCS_EXPECTED_TAG_OBJECT:-}" "\${CANONDOCS_EXPECTED_COMMIT:-}" >> "\$FIXTURE_LOG"
 [[ "\$CANONDOCS_RELEASE_TAG" == v1.2.3 ]] || { echo 'error: tag absent' >&2; exit 1; }
 [[ "\${FIXTURE_TAG_REPLACED:-0}" == 0 ]] || { echo 'error: tag replaced' >&2; exit 1; }
+# FIXTURE_PLANT_LINK: plant symlinks to the ceremony anchor beside the
+# script's private anchor file, where a predictable sidecar name would be.
+if [[ "\${FIXTURE_PLANT_LINK:-0}" == 1 ]]; then
+    for suffix in .expected .tmp .new .cmp; do
+        ln -s "\$CANONDOCS_RELEASE_ANCHOR_FILE" "\$CANONDOCS_ANCHOR_OUT\$suffix"
+        printf '%s\\n' "\$CANONDOCS_ANCHOR_OUT\$suffix" >> "\$FIXTURE_DIR/planted"
+    done
+fi
 if [[ -n "\${CANONDOCS_ANCHOR_OUT:-}" ]]; then
     printf 'tag=v1.2.3\\nobject=%s\\ncommit=%s\\n' "$object" "$commit" > "\$CANONDOCS_ANCHOR_OUT"
 fi
@@ -184,6 +192,17 @@ for bad in \
     CANONDOCS_RELEASE_ANCHOR_FILE="$anchors/bad-$i.anchor" FIXTURE_ATTEMPT="$good" \
         fail 'differs from the recorded ceremony anchor' ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
 done
+# Links planted beside the private anchor file never receive a write: a stale
+# ceremony anchor stays byte-for-byte unchanged and is still refused.
+printf 'tag=v1.2.3\nobject=%040d\ncommit=%s\n' 0 "$commit" > "$anchors/planted.anchor"
+cp "$anchors/planted.anchor" "$scratch/planted.before"
+rm -f "$FIXTURE_DIR/planted"
+CANONDOCS_RELEASE_ANCHOR_FILE="$anchors/planted.anchor" FIXTURE_PLANT_LINK=1 FIXTURE_ATTEMPT="$good" \
+    fail 'differs from the recorded ceremony anchor' ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
+[[ "$(wc -l < "$FIXTURE_DIR/planted")" -eq 4 ]] || { echo 'error: links were not planted' >&2; exit 1; }
+cmp -s "$scratch/planted.before" "$anchors/planted.anchor" ||
+    { echo 'error: a planted link redirected a write onto the ceremony anchor' >&2; exit 1; }
+while IFS= read -r link; do rm -f "$link"; done < "$FIXTURE_DIR/planted"
 printf 'tag=v1.2.3\nobject=%s\ncommit=%s' "$object" "$commit" > "$anchors/no-newline.anchor"
 CANONDOCS_RELEASE_ANCHOR_FILE="$anchors/no-newline.anchor" FIXTURE_ATTEMPT="$good" \
     fail 'differs from the recorded ceremony anchor' ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
