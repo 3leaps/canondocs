@@ -54,6 +54,12 @@ case "$1 $2" in
         shift
     done
     case "$path" in
+    */actions/workflows/release.yml/runs\?*)
+        # FIXTURE_RUNS is the workflow_runs page (the stub applies no server-side
+        # filter); FIXTURE_RUNS_TOTAL overrides total_count.
+        body="$(jq -c --arg total "${FIXTURE_RUNS_TOTAL:-}" \
+            '{total_count: (if $total == "" then length else ($total | tonumber) end), workflow_runs: .}' <<< "${FIXTURE_RUNS:-[]}")"
+        ;;
     */attempts/*) body="${FIXTURE_ATTEMPT:-}" ;;
     */runs/*/artifacts\?per_page=100)
         # Listing calls are counted so a test can change the answer between the
@@ -83,14 +89,6 @@ case "$1 $2" in
     esac
     [[ -n "$body" ]] || exit 1
     if [[ -n "$jq_filter" ]]; then jq -c "$jq_filter" <<< "$body"; else printf '%s\n' "$body"; fi
-    ;;
-"run list")
-    jq_filter=""
-    while [[ $# -gt 0 ]]; do
-        [[ "$1" == --jq ]] && jq_filter="$2"
-        shift
-    done
-    jq -c "$jq_filter" <<< "${FIXTURE_RUNS:-[]}"
     ;;
 "run download")
     dir=""
@@ -134,33 +132,63 @@ attempt_json() { # conclusion event head_sha attempt [path] [branch]
 }
 good="$(attempt_json success push "$commit" 2)"
 export CANONDOCS_RELEASE_RUN_ID=11 CANONDOCS_RELEASE_RUN_ATTEMPT=2 FIXTURE_LATEST=2
+# The ceremony anchor recorded when the tag was published.
+printf 'tag=v1.2.3\nobject=%s\ncommit=%s\n' "$object" "$commit" > "$scratch/ceremony.anchor"
+export CANONDOCS_RELEASE_ANCHOR_FILE="$scratch/ceremony.anchor"
 
 # Fetch: refuses a non-canonical tag, a missing local tag, a missing run id or
 # attempt, and any named attempt that is not a successful push-triggered
 # release run for this tag on the tagged commit or is not the latest attempt.
 fail 'usage' ./scripts/release-fetch-ci-artifacts.sh 1.2.3 "$scratch/d0"
 fail 'published tag v9.9.9 failed verification' ./scripts/release-fetch-ci-artifacts.sh v9.9.9 "$scratch/d0"
-CANONDOCS_RELEASE_RUN_ID='' FIXTURE_ATTEMPT="$good" fail 'CANONDOCS_RELEASE_RUN_ID required' \
+# The ceremony anchor is required and must match the verified tag.
+FIXTURE_ATTEMPT="$good" fail 'CANONDOCS_RELEASE_ANCHOR_FILE required' \
+    env -u CANONDOCS_RELEASE_ANCHOR_FILE ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
+CANONDOCS_RELEASE_ANCHOR_FILE='' FIXTURE_ATTEMPT="$good" fail 'CANONDOCS_RELEASE_ANCHOR_FILE required' \
     ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
+CANONDOCS_RELEASE_ANCHOR_FILE="$scratch/absent.anchor" FIXTURE_ATTEMPT="$good" fail 'ceremony anchor file not found' \
+    ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
+printf 'tag=v1.2.3\nobject=%040d\ncommit=%s\n' 0 "$commit" > "$scratch/stale.anchor"
+CANONDOCS_RELEASE_ANCHOR_FILE="$scratch/stale.anchor" FIXTURE_ATTEMPT="$good" fail 'differs from the recorded ceremony anchor' \
+    ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
+# Run rows as the workflow-runs API returns them:
+# id head_sha conclusion event [head_branch] [path] [status]
+run_row() {
+    printf '{"id":%s,"head_sha":"%s","conclusion":"%s","event":"%s","head_branch":"%s","path":"%s","status":"%s"}' \
+        "$1" "$2" "$3" "$4" "${5:-v1.2.3}" "${6:-.github/workflows/release.yml}" "${7:-completed}"
+}
+other="$(printf '%040d' 0)"
+# An empty named run is refused even when exactly one run could be selected.
+CANONDOCS_RELEASE_RUN_ID='' FIXTURE_RUNS="[$(run_row 11 "$commit" success push)]" FIXTURE_ATTEMPT="$good" \
+    fail 'CANONDOCS_RELEASE_RUN_ID required' ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
 CANONDOCS_RELEASE_RUN_ATTEMPT='' FIXTURE_ATTEMPT="$good" fail 'CANONDOCS_RELEASE_RUN_ATTEMPT required' \
     ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
 # Unprefixed selectors, even empty or alongside the prefixed ones, are refused
 # so a run named for another repository can never select this release.
-for unprefixed in RELEASE_RUN_ID=11 RELEASE_RUN_ATTEMPT=2 RELEASE_RUN_ID=; do
+for unprefixed in RELEASE_RUN_ID=11 RELEASE_RUN_ATTEMPT=2 RELEASE_RUN_ID= RELEASE_RUN_ATTEMPT=; do
     FIXTURE_ATTEMPT="$good" fail 'unprefixed RELEASE_RUN_ID or RELEASE_RUN_ATTEMPT is set' \
         env "$unprefixed" ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
 done
-# Without a named run, exactly one successful push-triggered run for the tag
-# at the tagged commit must exist.
-run_row() { printf '{"databaseId":%s,"headSha":"%s","conclusion":"%s","event":"%s"}' "$1" "$2" "$3" "$4"; }
-other="$(printf '%040d' 0)"
+# Without a named run, exactly one successful push-triggered release.yml run
+# for the tag at the tagged commit must be listed; each decoy differs in one
+# condition the server is asked to filter on and the script re-checks.
 for runs in \
     '[]' \
     "[$(run_row 11 "$commit" success push),$(run_row 12 "$commit" success push)]" \
-    "[$(run_row 11 "$other" success push),$(run_row 12 "$commit" failure push),$(run_row 13 "$commit" success workflow_dispatch)]"; do
+    "[$(run_row 11 "$other" success push)]" \
+    "[$(run_row 11 "$commit" failure push)]" \
+    "[$(run_row 11 "$commit" success workflow_dispatch)]" \
+    "[$(run_row 11 "$commit" success push main)]" \
+    "[$(run_row 11 "$commit" success push v1.2.3 .github/workflows/ci.yml)]" \
+    "[$(run_row 11 "$commit" success push v1.2.3 .github/workflows/release.yml in_progress)]"; do
     FIXTURE_RUNS="$runs" FIXTURE_ATTEMPT="$good" fail 'CANONDOCS_RELEASE_RUN_ID required' \
         env -u CANONDOCS_RELEASE_RUN_ID ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
 done
+# A listing that does not hold every matching run (a second page) is refused,
+# even when the first page holds exactly one eligible run.
+FIXTURE_RUNS="[$(run_row 11 "$commit" success push)]" FIXTURE_RUNS_TOTAL=101 FIXTURE_ATTEMPT="$good" \
+    fail 'run listing for v1.2.3 is incomplete' \
+    env -u CANONDOCS_RELEASE_RUN_ID ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
 for bad in \
     "$(attempt_json failure push "$commit" 2)" \
     "$(attempt_json success workflow_dispatch "$commit" 2)" \
@@ -190,11 +218,18 @@ if grep -q '^run download' "$FIXTURE_LOG"; then echo 'error: used gh run downloa
 [[ -f "$scratch/d2/canondocs-linux-amd64" ]]
 # Without named selectors, the single successful push-triggered run for the tag
 # at the tagged commit is selected, at its latest attempt; decoys are skipped.
+# The listing asks the server for exactly that filter.
 reset_listings
+: > "$FIXTURE_LOG"
 (cd "$repo" && FIXTURE_ATTEMPT="$good" \
     FIXTURE_RUNS="[$(run_row 9 "$other" success push),$(run_row 10 "$commit" failure push),$(run_row 11 "$commit" success push)]" \
     env -u CANONDOCS_RELEASE_RUN_ID -u CANONDOCS_RELEASE_RUN_ATTEMPT \
     ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/auto") > /dev/null
+grep -qF "api repos/3leaps/canondocs/actions/workflows/release.yml/runs?branch=v1.2.3&event=push&status=success&head_sha=$commit&per_page=100 " "$FIXTURE_LOG" || {
+    echo 'error: run listing did not request the exact server-side filter' >&2
+    cat "$FIXTURE_LOG" >&2
+    exit 1
+}
 [[ "$(cat "$scratch/auto.anchor")" == "$(printf 'tag=v1.2.3\nobject=%s\ncommit=%s\nrun=11\nattempt=2\nartifact=501\ndigest=%s' "$object" "$commit" "$digest")" ]]
 # A re-run landing during the download changes the artifact: refuse, and leave
 # no anchor behind.
