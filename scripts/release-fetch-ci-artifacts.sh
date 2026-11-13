@@ -67,6 +67,7 @@ PY
 printf 'tag=%s\nobject=%s\ncommit=%s\n' "$tag" "$object" "$commit" > "$anchor.expected"
 cmp -s "$anchor.expected" "$anchor_file" ||
     die 'verified tag differs from the recorded ceremony anchor'
+rm -f "$anchor.expected"
 python3 -B -E "$root/scripts/release-workflow-pin.py" verify-commit "$commit" > /dev/null ||
     die "release workflow pin check failed at tagged commit $commit"
 # Only the repository-prefixed selectors are read, so a run named for another
@@ -135,7 +136,7 @@ read -r artifact_id artifact_digest <<< "$before"
 [[ "$artifact_id" =~ ^[1-9][0-9]*$ ]] || die 'artifact id is malformed'
 [[ "$artifact_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "artifact $artifact_id has no sha256 digest"
 work="$(mktemp -d)"
-trap 'rm -f "$anchor"; rm -rf "$work"' EXIT
+trap 'rm -f "$anchor" "$anchor.expected"; rm -rf "$work"' EXIT
 release_gh api "repos/3leaps/canondocs/actions/artifacts/$artifact_id/zip" > "$work/artifact.zip" ||
     die "could not download artifact $artifact_id"
 actual="sha256:$(python3 -I -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$work/artifact.zip")"
