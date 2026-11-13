@@ -28,7 +28,7 @@ mkdir -p "$dest"
 # Verify the published tag now and record the verified object and commit. Every
 # later step, including draft creation, is bound to this anchor.
 anchor="$(mktemp)"
-trap 'rm -f "$anchor"' EXIT
+trap 'rm -f "$anchor" "$anchor.expected"' EXIT
 CANONDOCS_RELEASE_TAG="$tag" CANONDOCS_ANCHOR_OUT="$anchor" "$root/scripts/release-verify-published-tag.sh" > /dev/null ||
     die "published tag $tag failed verification"
 commit="$(awk -F= '$1=="commit" {print $2}' "$anchor")"
@@ -36,13 +36,36 @@ object="$(awk -F= '$1=="object" {print $2}' "$anchor")"
 [[ "$commit" =~ ^[0-9a-f]{40}$ && "$object" =~ ^[0-9a-f]{40}$ ]] || die 'verification did not return an anchor'
 # The ceremony anchor (make release-record-anchor) is required: the download
 # binds to the tag object and commit recorded when the tag was published.
-[[ -n "${CANONDOCS_RELEASE_ANCHOR_FILE:-}" ]] ||
+# Its path follows the same rules as when it was written
+# (scripts/release-record-anchor.sh): absolute, outside the repository, no
+# symlink in it or its parents. Its bytes must be exactly the three lines that
+# script writes for this tag, object and commit.
+anchor_file="${CANONDOCS_RELEASE_ANCHOR_FILE:-}"
+[[ -n "$anchor_file" ]] ||
     die 'CANONDOCS_RELEASE_ANCHOR_FILE required (record it with make release-record-anchor)'
-[[ -f "$CANONDOCS_RELEASE_ANCHOR_FILE" && ! -L "$CANONDOCS_RELEASE_ANCHOR_FILE" ]] ||
-    die "ceremony anchor file not found: $CANONDOCS_RELEASE_ANCHOR_FILE"
-[[ "$(awk -F= '$1=="tag" {print $2}' "$CANONDOCS_RELEASE_ANCHOR_FILE")" == "$tag" &&
-    "$(awk -F= '$1=="object" {print $2}' "$CANONDOCS_RELEASE_ANCHOR_FILE")" == "$object" &&
-    "$(awk -F= '$1=="commit" {print $2}' "$CANONDOCS_RELEASE_ANCHOR_FILE")" == "$commit" ]] ||
+[[ "$anchor_file" == /* ]] ||
+    die 'CANONDOCS_RELEASE_ANCHOR_FILE must be an absolute path outside the repository'
+python3 -I - "$root" "$anchor_file" << 'PY' || exit 1
+from pathlib import Path
+import sys
+
+repo = Path(sys.argv[1]).resolve()
+target = Path(sys.argv[2])
+cur = Path(target.anchor)
+for part in target.parts[1:-1]:
+    cur = cur / part
+    if cur.exists() and cur.is_symlink():
+        raise SystemExit("error: CANONDOCS_RELEASE_ANCHOR_FILE parent traverses a symlink")
+if target.is_symlink():
+    raise SystemExit("error: CANONDOCS_RELEASE_ANCHOR_FILE must not be a symlink")
+resolved = target.parent.resolve() / target.name
+if resolved == repo or resolved.is_relative_to(repo):
+    raise SystemExit("error: CANONDOCS_RELEASE_ANCHOR_FILE must be outside the repository working tree")
+PY
+[[ -f "$anchor_file" && ! -L "$anchor_file" ]] ||
+    die "ceremony anchor file not found: $anchor_file"
+printf 'tag=%s\nobject=%s\ncommit=%s\n' "$tag" "$object" "$commit" > "$anchor.expected"
+cmp -s "$anchor.expected" "$anchor_file" ||
     die 'verified tag differs from the recorded ceremony anchor'
 python3 -B -E "$root/scripts/release-workflow-pin.py" verify-commit "$commit" > /dev/null ||
     die "release workflow pin check failed at tagged commit $commit"
@@ -62,9 +85,9 @@ else
     # that does not hold every matching run (more than one page) is refused.
     listing="$(release_gh api \
         "repos/3leaps/canondocs/actions/workflows/release.yml/runs?branch=$tag&event=push&status=success&head_sha=$commit&per_page=100" \
-        --jq "{total: .total_count, listed: (.workflow_runs | length), ids: [.workflow_runs[] | select(.head_sha == \"$commit\" and .head_branch == \"$tag\" and .event == \"push\" and .status == \"completed\" and .conclusion == \"success\" and .path == \".github/workflows/release.yml\") | .id]}")" ||
+        --jq "{total: .total_count, shape: (.workflow_runs | type), listed: (.workflow_runs | length), ids: [.workflow_runs | arrays | .[] | select(.head_sha == \"$commit\" and .head_branch == \"$tag\" and .event == \"push\" and .status == \"completed\" and .conclusion == \"success\" and .path == \".github/workflows/release.yml\") | .id]}")" ||
         die "could not list Release workflow runs for $tag"
-    jq -e '(.total | type) == "number" and .total == .listed' <<< "$listing" > /dev/null ||
+    jq -e '.shape == "array" and (.total | type) == "number" and .total == .listed' <<< "$listing" > /dev/null ||
         die "Release workflow run listing for $tag is incomplete; name CANONDOCS_RELEASE_RUN_ID"
     [[ "$(jq '.ids | length' <<< "$listing")" == 1 ]] ||
         die "CANONDOCS_RELEASE_RUN_ID required ($(jq '.ids | length' <<< "$listing") successful Release workflow runs for $tag at $commit; name one)"

@@ -57,8 +57,12 @@ case "$1 $2" in
     */actions/workflows/release.yml/runs\?*)
         # FIXTURE_RUNS is the workflow_runs page (the stub applies no server-side
         # filter); FIXTURE_RUNS_TOTAL overrides total_count.
-        body="$(jq -c --arg total "${FIXTURE_RUNS_TOTAL:-}" \
-            '{total_count: (if $total == "" then length else ($total | tonumber) end), workflow_runs: .}' <<< "${FIXTURE_RUNS:-[]}")"
+        if [[ -n "${FIXTURE_RUNS_RAW:-}" ]]; then
+            body="$FIXTURE_RUNS_RAW"
+        else
+            body="$(jq -c --arg total "${FIXTURE_RUNS_TOTAL:-}" \
+                '{total_count: (if $total == "" then length else ($total | tonumber) end), workflow_runs: .}' <<< "${FIXTURE_RUNS:-[]}")"
+        fi
         ;;
     */attempts/*) body="${FIXTURE_ATTEMPT:-}" ;;
     */runs/*/artifacts\?per_page=100)
@@ -132,9 +136,12 @@ attempt_json() { # conclusion event head_sha attempt [path] [branch]
 }
 good="$(attempt_json success push "$commit" 2)"
 export CANONDOCS_RELEASE_RUN_ID=11 CANONDOCS_RELEASE_RUN_ATTEMPT=2 FIXTURE_LATEST=2
-# The ceremony anchor recorded when the tag was published.
-printf 'tag=v1.2.3\nobject=%s\ncommit=%s\n' "$object" "$commit" > "$scratch/ceremony.anchor"
-export CANONDOCS_RELEASE_ANCHOR_FILE="$scratch/ceremony.anchor"
+# The ceremony anchor recorded when the tag was published, outside the
+# repository on a path with no symlink (mktemp -d may sit under one: resolve).
+anchors="$(cd "$scratch" && pwd -P)/anchors"
+mkdir -p "$anchors"
+printf 'tag=v1.2.3\nobject=%s\ncommit=%s\n' "$object" "$commit" > "$anchors/ceremony.anchor"
+export CANONDOCS_RELEASE_ANCHOR_FILE="$anchors/ceremony.anchor"
 
 # Fetch: refuses a non-canonical tag, a missing local tag, a missing run id or
 # attempt, and any named attempt that is not a successful push-triggered
@@ -146,11 +153,40 @@ FIXTURE_ATTEMPT="$good" fail 'CANONDOCS_RELEASE_ANCHOR_FILE required' \
     env -u CANONDOCS_RELEASE_ANCHOR_FILE ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
 CANONDOCS_RELEASE_ANCHOR_FILE='' FIXTURE_ATTEMPT="$good" fail 'CANONDOCS_RELEASE_ANCHOR_FILE required' \
     ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
-CANONDOCS_RELEASE_ANCHOR_FILE="$scratch/absent.anchor" FIXTURE_ATTEMPT="$good" fail 'ceremony anchor file not found' \
+CANONDOCS_RELEASE_ANCHOR_FILE="$anchors/absent.anchor" FIXTURE_ATTEMPT="$good" fail 'ceremony anchor file not found' \
     ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
-printf 'tag=v1.2.3\nobject=%040d\ncommit=%s\n' 0 "$commit" > "$scratch/stale.anchor"
-CANONDOCS_RELEASE_ANCHOR_FILE="$scratch/stale.anchor" FIXTURE_ATTEMPT="$good" fail 'differs from the recorded ceremony anchor' \
+mkdir -p "$anchors/dir.anchor"
+CANONDOCS_RELEASE_ANCHOR_FILE="$anchors/dir.anchor" FIXTURE_ATTEMPT="$good" fail 'ceremony anchor file not found' \
     ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
+# Path rules match the writer: absolute, outside the repository, no symlink.
+cp "$anchors/ceremony.anchor" "$repo/checkout.anchor"
+CANONDOCS_RELEASE_ANCHOR_FILE=checkout.anchor FIXTURE_ATTEMPT="$good" fail 'must be an absolute path' \
+    ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
+CANONDOCS_RELEASE_ANCHOR_FILE="$(cd "$repo" && pwd -P)/checkout.anchor" FIXTURE_ATTEMPT="$good" fail 'must be outside the repository' \
+    ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
+rm -f "$repo/checkout.anchor"
+ln -s "$anchors/ceremony.anchor" "$anchors/link.anchor"
+CANONDOCS_RELEASE_ANCHOR_FILE="$anchors/link.anchor" FIXTURE_ATTEMPT="$good" fail 'must not be a symlink' \
+    ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
+ln -s "$anchors" "$(cd "$scratch" && pwd -P)/linked-dir"
+CANONDOCS_RELEASE_ANCHOR_FILE="$(cd "$scratch" && pwd -P)/linked-dir/ceremony.anchor" FIXTURE_ATTEMPT="$good" \
+    fail 'parent traverses a symlink' ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
+# Content must be exactly the three recorded lines: a different object, a
+# suffixed value, a duplicate or extra line, or a missing newline refuses.
+i=0
+for bad in \
+    "$(printf 'tag=v1.2.3\nobject=%040d\ncommit=%s\n' 0 "$commit")" \
+    "$(printf 'tag=v1.2.3=x\nobject=%s=x\ncommit=%s=x\n' "$object" "$commit")" \
+    "$(printf 'tag=v1.2.3\nobject=%s\ncommit=%s\nobject=\n' "$object" "$commit")" \
+    "$(printf 'tag=v1.2.3\nobject=%s\ncommit=%s\nrun=1\n' "$object" "$commit")"; do
+    i=$((i + 1))
+    printf '%s\n' "$bad" > "$anchors/bad-$i.anchor"
+    CANONDOCS_RELEASE_ANCHOR_FILE="$anchors/bad-$i.anchor" FIXTURE_ATTEMPT="$good" \
+        fail 'differs from the recorded ceremony anchor' ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
+done
+printf 'tag=v1.2.3\nobject=%s\ncommit=%s' "$object" "$commit" > "$anchors/no-newline.anchor"
+CANONDOCS_RELEASE_ANCHOR_FILE="$anchors/no-newline.anchor" FIXTURE_ATTEMPT="$good" \
+    fail 'differs from the recorded ceremony anchor' ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
 # Run rows as the workflow-runs API returns them:
 # id head_sha conclusion event [head_branch] [path] [status]
 run_row() {
@@ -184,6 +220,10 @@ for runs in \
     FIXTURE_RUNS="$runs" FIXTURE_ATTEMPT="$good" fail 'CANONDOCS_RELEASE_RUN_ID required' \
         env -u CANONDOCS_RELEASE_RUN_ID ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
 done
+# A workflow_runs that is not an array is refused, even holding one eligible run.
+FIXTURE_RUNS_RAW="{\"total_count\":1,\"workflow_runs\":{\"only\":$(run_row 11 "$commit" success push)}}" FIXTURE_ATTEMPT="$good" \
+    fail 'run listing for v1.2.3 is incomplete' \
+    env -u CANONDOCS_RELEASE_RUN_ID ./scripts/release-fetch-ci-artifacts.sh v1.2.3 "$scratch/d1"
 # A listing that does not hold every matching run (a second page) is refused,
 # even when the first page holds exactly one eligible run.
 FIXTURE_RUNS="[$(run_row 11 "$commit" success push)]" FIXTURE_RUNS_TOTAL=101 FIXTURE_ATTEMPT="$good" \
