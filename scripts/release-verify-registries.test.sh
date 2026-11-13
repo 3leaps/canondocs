@@ -133,10 +133,12 @@ PY
 class Canondocs < Formula
   desc "RFC 8785 canonical JSON from JSON, YAML and NDJSON"
   homepage "https://github.com/3leaps/canondocs"
-  version "1.2.3"
   license any_of: ["MIT", "Apache-2.0"]
+  head "https://github.com/3leaps/canondocs.git", branch: "main"
 
   on_macos do
+    depends_on arch: :arm64
+
     on_arm do
       url "https://github.com/3leaps/canondocs/releases/download/$tag/canondocs-darwin-arm64"
       sha256 "$sha_darwin_arm64"

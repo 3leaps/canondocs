@@ -127,7 +127,11 @@ change and is announced in the release notes.
 - [ ] Verify `go install github.com/3leaps/canondocs/cmd/canondocs@v<version>` works
 - [ ] Update `Formula/canondocs.rb` from the uploaded asset URLs and SHA256 values:
   - [ ] raw `canondocs-darwin-arm64`, `canondocs-linux-amd64`, `canondocs-linux-arm64` URLs
-  - [ ] no Intel macOS entry
+  - [ ] no Intel macOS entry; `depends_on arch: :arm64` inside `on_macos`, and
+        a `head "https://github.com/3leaps/canondocs.git", branch: "main"`
+        line so tap-wide checks load the formula on every platform
+  - [ ] no `version` line (Homebrew reads it from the URL; a redundant one
+        fails the tap audit)
   - [ ] `license any_of: ["MIT", "Apache-2.0"]`
 - [ ] Verify Homebrew: `brew install 3leaps/tap/canondocs && canondocs version`
 - [ ] Update `bucket/canondocs.json` from the uploaded asset URLs and SHA256 values:
